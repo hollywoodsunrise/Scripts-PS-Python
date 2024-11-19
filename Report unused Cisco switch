@@ -1,0 +1,52 @@
+# Данный скрпит подключается по SSH к коммутаторам и опрашивает на количество свободных и занятых портов. Далее создает Excel файл с отчётом. IP адреса заранее кладутся в ip_addresses.txt.
+
+from netmiko import ConnectHandler
+import pandas as pd
+import time
+df2 = pd.DataFrame()
+# Чтение IP из файла и перебор
+with open('ip_addresses.txt', 'r') as file:
+    for line in file:
+        ip = line.strip()
+        time.sleep(1)
+        
+        #Запись IP в переменную для подключения
+        device = {
+            'device_type': 'cisco_ios',
+            'ip': ip,
+            'username': 'укажите_логин',
+            'password': 'укажите_пароль',
+            'global_delay_factor': 2  # Установка глобального множителя задержки
+        }
+        command = 'show interfaces status'
+        
+        #Подключение к комутатору и запись в DataFrame
+        try:
+            with ConnectHandler(**device) as net_connect:
+                output = net_connect.send_command(command)
+                
+                free_ports = sum('notconnect' in line.lower() or 'disabled' in line.lower() or 'err-disabled' in line.lower() for line in output.splitlines())
+                used_ports = sum('connected' in line.lower() for line in output.splitlines())
+            # Создаем DataFrame с результатами
+            data = {'Коммутатор' : [ip],
+                    'Количество свободных портов': [free_ports],
+                    'Количество занятых портов': [used_ports]}
+         
+            df = pd.DataFrame(data)
+            df2 = pd.concat([df2, df], ignore_index = True)
+            print (ip + ' completed')
+            
+        except Exception as e:
+            #print(f'Ошибка при подключении или выполнении команды: {str(e)}')
+            print (ip + ' error')
+            free_ports = "Error"
+            used_ports = "Error"
+            # Создаем DataFrame с результатами
+            data = {'Коммутатор' : [ip],
+                    'Количество свободных портов': [free_ports],
+                    'Количество занятых портов': [used_ports]}
+         
+            df = pd.DataFrame(data)
+            df2 = pd.concat([df2, df], ignore_index = True)
+df2.to_excel (r'output.xlsx', sheet_name='Statistics', index_label=None, index=False, header=False)
+print ('Done')
