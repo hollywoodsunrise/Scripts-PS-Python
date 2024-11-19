@@ -1,0 +1,71 @@
+# Данный скрипт позволяет направлять Вам на почту ( Task Scheduler ) отчёт об неиспользуемых аккаунтах в домене > 180 дней.
+
+
+# Определение контроллера домена
+$dc = (get-addomaincontroller -Discover -Service ADWS).Name
+
+# Параметры SMTP
+$SMTPServer = "Ваш SMTP сервер"
+$SMTPPort = "25"
+$to = "КОМУ"
+$cc = "НА КОПИЮ"
+$username = "SMTP сервер откуда слать"
+$subject = "Список пользователей, не авторизовывавшихся в домене более 180 дней"
+
+# Задаем OU для поиска пользователей
+$OUs = @(
+"OU=Users,OU=***,DC=***,DC=***,DC=***",
+)
+
+# Дата, соответствующая 180 дням назад
+$DateThreshold = (Get-Date).AddDays(-180)
+
+# Создаем пустую строку для отчета
+$Report = ""
+
+# Поиск пользователей в каждом OU
+foreach ($OU in $OUs) {
+try {
+# Поиск пользователей с использованием конкретного контроллера домена ($dc)
+$Users = Get-ADUser -Server $dc -Filter {LastLogonDate -lt $DateThreshold -and Enabled -eq $true} -SearchBase $OU -Properties LastLogonDate
+
+# Формируем отчет по каждому OU
+if ($Users.Count -gt 0) {
+# Добавляем заголовок OU
+$Report += "OU: $OU`n"
+# Формируем таблицу пользователей для текущего OU
+$OUReport = $Users | Select-Object Name, SamAccountName, @{Name='LastLogonDate';Expression={if ($_.LastLogonDate) {[DateTime]::FromFileTime($_.LastLogonDate)} else {"Нет данных"}}} | Format-Table -AutoSize | Out-String -Stream | Out-String
+$Report += "$OUReportnn"
+} else {
+$Report += "OU: $OUnНет пользователей, не авторизовывавшихся более 180 дней.n`n"
+}
+}
+catch {
+Write-Host "Не удалось подключиться к серверу AD или выполнить запрос в $OU"
+}
+}
+
+# Формируем тело письма
+if ($Report -ne "") {
+$body = "Ниже приведен список учетных записей пользователей, которые не авторизовывались более 180 дней:nn$Report"
+} else {
+$body = "Не найдено пользователей, не авторизовывавшихся более 180 дней."
+}
+
+# Параметры отправки почты
+$MailParams = @{
+From = $username
+To = $to
+Cc = $cc
+Subject = $subject
+Body = $body
+SmtpServer = $SMTPServer
+Port = $SMTPPort
+BodyAsHtml = $false
+}
+
+# Отправляем email с отчетом
+Send-MailMessage @MailParams -Encoding ([System.Text.Encoding]::UTF8)
+
+# Выводим информацию о завершении
+Write-Host "Отчет отправлен на почту."
