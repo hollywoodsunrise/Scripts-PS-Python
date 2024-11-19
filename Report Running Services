@@ -1,0 +1,107 @@
+#Скрипт, создает отчет по запущенной службы, в данном случае Windows Defender
+
+# Список виртуальных машин (имен хостов или IP-адресов)
+$vmList = @(
+    "192.168.**.",
+    "192.168.**"
+)
+
+# Службы Windows Defender для проверки? можно поменять на службу, которая Вам нужна
+$services = @("MpSvc", "WinDefend", "WdNisSvc")
+
+# Функция для проверки статуса службы на удаленной машине
+function Check-DefenderServices {
+    param (
+        [string]$vmName
+    )
+
+    $status = @{}
+
+    foreach ($service in $services) {
+        try {
+            # Получаем информацию о статусе службы на удаленном компьютере
+            $serviceStatus = Get-Service -ComputerName $vmName -Name $service -ErrorAction Stop
+
+            # Сохраняем информацию о статусе
+            $status[$service] = $serviceStatus.Status
+        }
+        catch {
+            # В случае ошибки выводим сообщение об ошибке
+            $status[$service] = "Error: $($_.Exception.Message)"
+        }
+    }
+
+    return $status
+}
+
+# Функция для получения IP-адреса машины
+function Get-IP {
+    param (
+        [string]$vmName
+    )
+
+    try {
+        # Используем Test-Connection для получения IP-адреса
+        $ip = (Test-Connection -ComputerName $vmName -Count 1 -ErrorAction Stop).IPv4Address.IPAddressToString
+    }
+    catch {
+        $ip = "Not Available"
+    }
+
+    return $ip
+}
+
+# Результаты проверки всех машин
+$results = @()
+
+foreach ($vm in $vmList) {
+    Write-Host "Checking $vm..."
+    
+    # Получаем IP-адрес
+    $ipAddress = Get-IP -vmName $vm
+
+    # Создаем объект для хранения результата
+    $vmResult = New-Object PSObject -Property @{
+        VMName    = $vm
+        IPAddress = $ipAddress
+        MpSvc     = ""
+        WinDefend = ""
+        WdNisSvc  = ""
+    }
+
+    # Проверяем статус служб
+    $serviceStatus = Check-DefenderServices -vmName $vm
+
+    # Явная проверка статуса каждой службы
+    if ($serviceStatus.ContainsKey("MpSvc")) {
+        $vmResult.MpSvc = $serviceStatus["MpSvc"]
+    } else {
+        $vmResult.MpSvc = "Not Found"
+    }
+
+    if ($serviceStatus.ContainsKey("WinDefend")) {
+        $vmResult.WinDefend = $serviceStatus["WinDefend"]
+    } else {
+        $vmResult.WinDefend = "Not Found"
+    }
+
+    if ($serviceStatus.ContainsKey("WdNisSvc")) {
+        $vmResult.WdNisSvc = $serviceStatus["WdNisSvc"]
+    } else {
+        $vmResult.WdNisSvc = "Not Found"
+    }
+
+    # Добавляем результат в общий список
+    $results += $vmResult
+}
+
+# Путь для сохранения текстового файла
+$txtFilePath = "C:\Scripts\DefenderServicesStatus.txt"
+
+# Преобразуем объекты в текст для записи в файл
+$output = $results | Out-String
+
+# Сохраняем результаты в текстовый файл
+$output | Out-File -FilePath $txtFilePath
+
+Write-Host "Results saved to file $txtFilePath"
