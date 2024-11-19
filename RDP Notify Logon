@@ -1,0 +1,53 @@
+#Расположить данный скрипт на сервере, с которого хотите получать уведомления о входе. Создать в Task Scheduler триггер на вход по RDP - Запуск данного скрипта
+
+$SMTPServer = "ваш SMTP сервер"
+$SMTPPort = "25"
+$to = "Кому Слать"
+$cc = "На Копии"
+$username = "Почта SMTP"
+$RDetails = @()  # Создание пустого массива, если он вам нужен
+
+$a = "<style>"
+$a += "TABLE{border-width: 1px;border-style: solid;border-color:black;}"
+$a += "Table{background-color:#ffffff;border-collapse: collapse;}"
+$a += "TH{border-width:1px;padding:0px;border-style:solid;border-color:black;}"
+$a += "TR{border-width:1px;padding-left:5px;border-style:solid;border-color:black;}"
+$a += "TD{border-width:1px;padding-left:5px;border-style:solid;border-color:black;}"
+$a += "</style>"
+
+$Computer = hostname
+$LogOnEvents = Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4624; Level=0} | Where-Object { $_.Properties[8].Value -eq 10 } | Select-Object -First 1
+
+$HashProps = @{
+    UserName = $LogOnEvents.Properties[5].Value
+    ClientIP = $LogOnEvents.Properties[18].Value
+    LogonTime = $LogOnEvents.TimeCreated
+}
+$USERDetails = New-Object -TypeName PSCustomObject -Property $HashProps |
+Select-Object -Property UserName,ClientIP,LogonTime
+$User = $USERDetails | Select-Object -ExpandProperty UserName
+
+# Формируем тело письма
+$messageBody = @"
+Уважаемые коллеги,
+Сообщаем, что на сервер $Computer был выполнен вход по RDP.
+Подробная информация:
+            Пользователь: $($USERDetails.UserName)
+            IP адрес пользователя: $($USERDetails.ClientIP)
+            Время входа: $($USERDetails.LogonTime)
+
+С уважением, Ваш Скриптик
+"@
+
+# assemble message
+$message = New-Object System.Net.Mail.MailMessage
+$message.Subject = "[RDP Event] Пользователь $User залогинился на $Computer"
+$message.Body = $messageBody
+$message.To.Add($to)
+$message.CC.Add($cc)
+$message.From = $username
+
+$smtp = New-Object System.Net.Mail.SmtpClient($SMTPServer, $SMTPPort)
+
+$smtp.Send($message)
+Write-Host "Mail Sent"
